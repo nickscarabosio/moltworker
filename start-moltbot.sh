@@ -33,15 +33,30 @@ mkdir -p "$CONFIG_DIR"
 # ============================================================
 # Check if R2 backup exists by looking for clawdbot.json
 # The BACKUP_DIR may exist but be empty if R2 was just mounted
-if [ -f "$BACKUP_DIR/clawdbot.json" ]; then
-    echo "Found R2 backup at $BACKUP_DIR, restoring..."
+# Note: backup structure is $BACKUP_DIR/clawdbot/ and $BACKUP_DIR/skills/
+if [ -f "$BACKUP_DIR/clawdbot/clawdbot.json" ]; then
+    echo "Found R2 backup at $BACKUP_DIR/clawdbot, restoring..."
     # Copy all files from backup to config dir, preserving attributes
-    cp -a "$BACKUP_DIR/." "$CONFIG_DIR/"
+    cp -a "$BACKUP_DIR/clawdbot/." "$CONFIG_DIR/"
     echo "Restored config from R2 backup"
+elif [ -f "$BACKUP_DIR/clawdbot.json" ]; then
+    # Legacy backup format (flat structure)
+    echo "Found legacy R2 backup at $BACKUP_DIR, restoring..."
+    cp -a "$BACKUP_DIR/." "$CONFIG_DIR/"
+    echo "Restored config from legacy R2 backup"
 elif [ -d "$BACKUP_DIR" ]; then
     echo "R2 mounted at $BACKUP_DIR but no backup data found yet"
 else
     echo "R2 not mounted, starting fresh"
+fi
+
+# Restore skills from R2 backup if available
+SKILLS_DIR="/root/clawd/skills"
+if [ -d "$BACKUP_DIR/skills" ] && [ "$(ls -A $BACKUP_DIR/skills 2>/dev/null)" ]; then
+    echo "Found skills backup at $BACKUP_DIR/skills, restoring..."
+    mkdir -p "$SKILLS_DIR"
+    cp -a "$BACKUP_DIR/skills/." "$SKILLS_DIR/"
+    echo "Restored skills from R2 backup"
 fi
 
 # If config file still doesn't exist, create from template
@@ -158,15 +173,20 @@ if (process.env.ANTHROPIC_BASE_URL) {
     console.log('Configuring custom Anthropic base URL:', process.env.ANTHROPIC_BASE_URL);
     config.models = config.models || {};
     config.models.providers = config.models.providers || {};
-    config.models.providers.anthropic = {
+    const providerConfig = {
         baseUrl: process.env.ANTHROPIC_BASE_URL,
         api: 'anthropic-messages',
         models: [
             { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', contextWindow: 200000 },
-            { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', contextWindow: 200000 },
+            { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5', contextWindow: 200000 },
             { id: 'claude-haiku-3-5-20241022', name: 'Claude Haiku 3.5', contextWindow: 200000 },
         ]
     };
+    // Include API key in provider config if set (required when using custom baseUrl)
+    if (process.env.ANTHROPIC_API_KEY) {
+        providerConfig.apiKey = process.env.ANTHROPIC_API_KEY;
+    }
+    config.models.providers.anthropic = providerConfig;
 }
 
 // Write updated config

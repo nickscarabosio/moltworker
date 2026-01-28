@@ -68,10 +68,14 @@ function validateRequiredEnv(env: MoltbotEnv): string[] {
   }
 
   // Check for AI Gateway or direct Anthropic configuration
-  const hasApiKey = env.AI_GATEWAY_API_KEY || env.ANTHROPIC_API_KEY;
-  const hasBaseUrl = env.AI_GATEWAY_BASE_URL || env.ANTHROPIC_BASE_URL;
-  if (!hasApiKey && !hasBaseUrl) {
-    missing.push('AI_GATEWAY_API_KEY or ANTHROPIC_API_KEY');
+  if (env.AI_GATEWAY_API_KEY) {
+    // AI Gateway requires both API key and base URL
+    if (!env.AI_GATEWAY_BASE_URL) {
+      missing.push('AI_GATEWAY_BASE_URL (required when using AI_GATEWAY_API_KEY)');
+    }
+  } else if (!env.ANTHROPIC_API_KEY) {
+    // Direct Anthropic access requires API key
+    missing.push('ANTHROPIC_API_KEY or AI_GATEWAY_API_KEY');
   }
 
   return missing;
@@ -163,12 +167,22 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Middleware: Cloudflare Access authentication for all routes except /cdp/*
+// Middleware: Cloudflare Access authentication for all routes except /cdp/* and static assets
 app.use('*', async (c, next) => {
   const url = new URL(c.req.url);
   
   // Skip auth for CDP routes (uses shared secret auth)
   if (url.pathname.startsWith('/cdp')) {
+    return next();
+  }
+  
+  // Skip auth for admin UI static assets (CSS, JS need to load for login redirect to work)
+  if (url.pathname.startsWith('/_admin/assets/')) {
+    return next();
+  }
+  
+  // Skip auth for public static assets (logos, etc.)
+  if (url.pathname.endsWith('.png')) {
     return next();
   }
   
