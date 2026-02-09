@@ -20,10 +20,14 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # Install pnpm globally
 RUN npm install -g pnpm
 
-# Install Google APIs client (for Google Workspace skill)
-# NODE_PATH ensures globally installed modules are found by require()
-ENV NODE_PATH=/usr/local/lib/node_modules
-RUN npm install -g googleapis google-auth-library
+# Install gogcli (Google Workspace CLI for Gmail/Calendar/Drive)
+# OpenClaw has a built-in 'gog' skill that wraps this CLI
+ENV GOG_VERSION=0.9.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://github.com/steipete/gogcli/releases/download/v${GOG_VERSION}/gogcli_${GOG_VERSION}_linux_${ARCH}.tar.gz" -o /tmp/gogcli.tar.gz \
+    && tar -xzf /tmp/gogcli.tar.gz -C /usr/local/bin gog \
+    && rm /tmp/gogcli.tar.gz \
+    && gog --version
 
 # Install OpenClaw (formerly clawdbot/moltbot)
 # Pin to specific version for reproducible builds
@@ -37,7 +41,7 @@ RUN mkdir -p /root/.openclaw \
     && mkdir -p /root/clawd/skills
 
 # Copy startup script
-# Build cache bust: 2026-02-09-v32-script-node-path
+# Build cache bust: 2026-02-09-v34-gogcli-auth-fix
 COPY start-openclaw.sh /usr/local/bin/start-openclaw.sh
 RUN chmod +x /usr/local/bin/start-openclaw.sh
 
