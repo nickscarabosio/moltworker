@@ -145,7 +145,7 @@ app.use('*', async (c, next) => {
 // Middleware: Initialize sandbox for all requests
 app.use('*', async (c, next) => {
   const options = buildSandboxOptions(c.env);
-  const sandbox = getSandbox(c.env.Sandbox, 'moltbot', options);
+  const sandbox = getSandbox(c.env.Sandbox, 'moltbot-v2', options);
   c.set('sandbox', sandbox);
   await next();
 });
@@ -537,7 +537,7 @@ async function scheduled(
   _ctx: ExecutionContext,
 ): Promise<void> {
   const options = buildSandboxOptions(env);
-  const sandbox = getSandbox(env.Sandbox, 'moltbot', options);
+  const sandbox = getSandbox(env.Sandbox, 'moltbot-v2', options);
 
   // Monitor total process count for leaks
   let processCount = 0;
