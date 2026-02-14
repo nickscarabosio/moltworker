@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { AppEnv } from '../types';
-import { MOLTBOT_PORT } from '../config';
 import { findExistingMoltbotProcess } from '../gateway';
+import { MOLTBOT_PORT } from '../config';
 
 /**
  * Public routes - NO Cloudflare Access authentication required
@@ -66,5 +66,6 @@ publicRoutes.get('/_admin/assets/*', async (c) => {
   const assetUrl = new URL(assetPath, url.origin);
   return c.env.ASSETS.fetch(new Request(assetUrl.toString(), c.req.raw));
 });
+
 
 export { publicRoutes };

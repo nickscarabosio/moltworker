@@ -323,52 +323,38 @@ app.all('*', async (c) => {
 
   console.log('[PROXY] Handling request:', url.pathname);
 
-  // Check if gateway is already running
-  const existingProcess = await findExistingMoltbotProcess(sandbox);
-  const isGatewayReady = existingProcess !== null && existingProcess.status === 'running';
-
-  // For browser requests (non-WebSocket, non-API), show loading page if gateway isn't ready
   const isWebSocketRequest =
     request.headers.get('Upgrade')?.toLowerCase() === 'websocket' ||
-    request.headers.get('Sec-WebSocket-Key') !== undefined;
+    request.headers.get('Sec-WebSocket-Key') !== null;
   const acceptsHtml = request.headers.get('Accept')?.includes('text/html');
 
-  if (!isGatewayReady && !isWebSocketRequest && acceptsHtml) {
-    console.log('[PROXY] Gateway not ready, serving loading page');
-
-    // Start the gateway in the background (don't await)
-    c.executionCtx.waitUntil(
-      ensureMoltbotGateway(sandbox, c.env).catch((err: Error) => {
-        console.error('[PROXY] Background gateway start failed:', err);
-      }),
-    );
-
-    // Return the loading page immediately
-    return c.html(loadingPageHtml);
-  }
-
-  // Ensure moltbot is running (this will wait for startup)
-  try {
-    await ensureMoltbotGateway(sandbox, c.env);
-  } catch (error) {
-    console.error('[PROXY] Failed to start Moltbot:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-    let hint = 'Check worker logs with: wrangler tail';
-    if (!c.env.ANTHROPIC_API_KEY) {
-      hint = 'ANTHROPIC_API_KEY is not set. Run: wrangler secret put ANTHROPIC_API_KEY';
-    } else if (errorMessage.includes('heap out of memory') || errorMessage.includes('OOM')) {
-      hint = 'Gateway ran out of memory. Try again or check for memory leaks.';
+  // Proxy non-WebSocket HTTP requests directly to the container gateway
+  if (!isWebSocketRequest) {
+    const containerParams = new URLSearchParams(url.search);
+    containerParams.delete('token');
+    // Inject gateway token — the gateway requires it for auth
+    if (c.env.MOLTBOT_GATEWAY_TOKEN) {
+      containerParams.set('token', c.env.MOLTBOT_GATEWAY_TOKEN);
     }
+    const containerSearch = containerParams.toString() ? `?${containerParams.toString()}` : '';
+    const containerUrl = new URL(url.pathname + containerSearch, `http://localhost:${MOLTBOT_PORT}`);
+    console.log('[HTTP] Proxying:', containerUrl.pathname + containerUrl.search);
 
-    return c.json(
-      {
-        error: 'Moltbot gateway failed to start',
-        details: errorMessage,
-        hint,
-      },
-      503,
-    );
+    try {
+      const containerRequest = new Request(containerUrl.toString());
+      const httpResponse = await sandbox.containerFetch(containerRequest, MOLTBOT_PORT);
+      console.log('[HTTP] Response status:', httpResponse.status);
+      return new Response(httpResponse.body, {
+        status: httpResponse.status,
+        headers: new Headers(httpResponse.headers),
+      });
+    } catch (e) {
+      console.error('[HTTP] containerFetch failed:', e);
+      if (acceptsHtml) {
+        return c.html(loadingPageHtml);
+      }
+      return c.json({ error: 'Gateway not responding', details: String(e) }, 503);
+    }
   }
 
   // Proxy to Moltbot with WebSocket message interception
@@ -519,12 +505,6 @@ app.all('*', async (c) => {
       webSocket: clientWs,
     });
   }
-
-  console.log('[HTTP] Proxying:', url.pathname + url.search);
-  const httpResponse = await sandbox.containerFetch(request, MOLTBOT_PORT);
-  console.log('[HTTP] Response status:', httpResponse.status);
-
-  return httpResponse;
 });
 
 /**

@@ -50,7 +50,7 @@ adminApi.get('/devices', async (c) => {
     // Try to parse JSON output
     try {
       // Find JSON in output (may have other log lines)
-      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+      const jsonMatch = result.stdout.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const data = JSON.parse(jsonMatch[0]);
         return c.json(data);
@@ -67,8 +67,8 @@ adminApi.get('/devices', async (c) => {
       return c.json({
         pending: [],
         paired: [],
-        raw: stdout,
-        stderr,
+        raw: result.stdout,
+        stderr: result.stderr,
         parseError: 'Failed to parse CLI output',
       });
     }
@@ -136,7 +136,7 @@ adminApi.post('/devices/approve-all', async (c) => {
     // Parse pending devices
     let pending: Array<{ requestId: string }> = [];
     try {
-      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+      const jsonMatch = listResult.stdout.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const data = JSON.parse(jsonMatch[0]);
         pending = data.pending || [];

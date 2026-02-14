@@ -49,6 +49,7 @@ export interface MoltbotEnv {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_REFRESH_TOKEN?: string;
+  FRESH_START?: string; // Set to 'true' to skip R2 restore on boot (clean slate)
 }
 
 /**

@@ -54,6 +54,7 @@ export function buildEnvVars(env: MoltbotEnv): Record<string, string> {
   if (env.GOOGLE_CLIENT_ID) envVars.GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID;
   if (env.GOOGLE_CLIENT_SECRET) envVars.GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET;
   if (env.GOOGLE_REFRESH_TOKEN) envVars.GOOGLE_REFRESH_TOKEN = env.GOOGLE_REFRESH_TOKEN;
+  if (env.FRESH_START) envVars.FRESH_START = env.FRESH_START;
 
   return envVars;
 }
