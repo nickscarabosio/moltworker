@@ -27,14 +27,15 @@ if [ "$FRESH_START" = "true" ]; then
     echo "FRESH_START=true — skipping R2 restore entirely"
 else
 
-# Check for backup data in new openclaw/ prefix first, then legacy clawdbot/ prefix
-# Use rsync instead of cp -a to handle broken symlinks/git objects in R2 (s3fs)
-# Wrap in timeout — s3fs file checks can hang on stale mounts in fresh containers
-echo "Attempting R2 restore (30s timeout)..."
-timeout 30 bash -c '
+# Restore from R2 backup — supports tar archives (new) and rsync directories (legacy)
+# Tar archives are much faster over s3fs (single file read vs many individual reads)
+echo "Attempting R2 restore (60s timeout)..."
+timeout 60 bash -c '
 BACKUP_DIR="/data/moltbot"
 CONFIG_DIR="/root/.openclaw"
 CONFIG_FILE="$CONFIG_DIR/openclaw.json"
+WORKSPACE_DIR="/root/.openclaw/workspace"
+SKILLS_DIR="/root/clawd/skills"
 
 should_restore() {
     local R2_SYNC_FILE="$BACKUP_DIR/.last-sync"
@@ -50,50 +51,59 @@ should_restore() {
     return 0
 }
 
-if [ -f "$BACKUP_DIR/openclaw/openclaw.json" ]; then
-    if should_restore; then
-        echo "Restoring from R2 backup at $BACKUP_DIR/openclaw..."
-        rsync -r --no-times --exclude=".git" "$BACKUP_DIR/openclaw/" "$CONFIG_DIR/" 2>&1 || true
-        cp -f "$BACKUP_DIR/.last-sync" "$CONFIG_DIR/.last-sync" 2>/dev/null || true
-        echo "Restored config from R2 backup"
-    fi
+if ! should_restore; then
+    exit 0
+fi
+
+# --- Config restore ---
+if [ -f "$BACKUP_DIR/openclaw-config.tar.gz" ]; then
+    echo "Restoring config from tar archive..."
+    tar xzf "$BACKUP_DIR/openclaw-config.tar.gz" -C "$CONFIG_DIR/" 2>&1 || true
+    cp -f "$BACKUP_DIR/.last-sync" "$CONFIG_DIR/.last-sync" 2>/dev/null || true
+    echo "Restored config from tar archive"
+elif [ -f "$BACKUP_DIR/openclaw/openclaw.json" ]; then
+    echo "Restoring from legacy R2 backup at $BACKUP_DIR/openclaw..."
+    rsync -r --no-times --exclude=".git" "$BACKUP_DIR/openclaw/" "$CONFIG_DIR/" 2>&1 || true
+    cp -f "$BACKUP_DIR/.last-sync" "$CONFIG_DIR/.last-sync" 2>/dev/null || true
+    echo "Restored config from legacy rsync backup"
 elif [ -f "$BACKUP_DIR/clawdbot/clawdbot.json" ]; then
-    if should_restore; then
-        echo "Restoring from legacy R2 backup at $BACKUP_DIR/clawdbot..."
-        rsync -r --no-times --exclude=".git" "$BACKUP_DIR/clawdbot/" "$CONFIG_DIR/" 2>&1 || true
-        cp -f "$BACKUP_DIR/.last-sync" "$CONFIG_DIR/.last-sync" 2>/dev/null || true
-        if [ -f "$CONFIG_DIR/clawdbot.json" ] && [ ! -f "$CONFIG_FILE" ]; then
-            mv "$CONFIG_DIR/clawdbot.json" "$CONFIG_FILE"
-        fi
-        echo "Restored and migrated config from legacy R2 backup"
+    echo "Restoring from legacy clawdbot backup..."
+    rsync -r --no-times --exclude=".git" "$BACKUP_DIR/clawdbot/" "$CONFIG_DIR/" 2>&1 || true
+    cp -f "$BACKUP_DIR/.last-sync" "$CONFIG_DIR/.last-sync" 2>/dev/null || true
+    if [ -f "$CONFIG_DIR/clawdbot.json" ] && [ ! -f "$CONFIG_FILE" ]; then
+        mv "$CONFIG_DIR/clawdbot.json" "$CONFIG_FILE"
     fi
+    echo "Restored and migrated config from legacy clawdbot backup"
 elif [ -d "$BACKUP_DIR" ]; then
-    echo "R2 mounted at $BACKUP_DIR but no backup data found yet"
+    echo "R2 mounted at $BACKUP_DIR but no config backup found"
 else
     echo "R2 not mounted, starting fresh"
 fi
-' || echo "WARNING: R2 restore timed out or failed — continuing without R2 data"
 
-# Restore workspace and skills from R2 (also under timeout)
-timeout 20 bash -c '
-BACKUP_DIR="/data/moltbot"
-WORKSPACE_DIR="/root/.openclaw/workspace"
-SKILLS_DIR="/root/clawd/skills"
-
-if [ -d "$BACKUP_DIR/workspace" ] && [ "$(ls -A $BACKUP_DIR/workspace 2>/dev/null)" ]; then
-    echo "Restoring workspace from $BACKUP_DIR/workspace..."
-    mkdir -p "$WORKSPACE_DIR"
+# --- Workspace restore ---
+mkdir -p "$WORKSPACE_DIR"
+if [ -f "$BACKUP_DIR/workspace.tar.gz" ]; then
+    echo "Restoring workspace from tar archive..."
+    tar xzf "$BACKUP_DIR/workspace.tar.gz" -C "$WORKSPACE_DIR/" 2>&1 || true
+    echo "Restored workspace from tar archive"
+elif [ -d "$BACKUP_DIR/workspace" ] && [ "$(ls -A $BACKUP_DIR/workspace 2>/dev/null)" ]; then
+    echo "Restoring workspace from legacy rsync backup..."
     rsync -r --no-times --exclude=".git" "$BACKUP_DIR/workspace/" "$WORKSPACE_DIR/" 2>&1 || true
-    echo "Restored workspace from R2 backup"
+    echo "Restored workspace from legacy rsync backup"
 fi
 
-if [ -d "$BACKUP_DIR/skills" ] && [ "$(ls -A $BACKUP_DIR/skills 2>/dev/null)" ]; then
-    echo "Restoring skills from $BACKUP_DIR/skills..."
-    mkdir -p "$SKILLS_DIR"
+# --- Skills restore ---
+mkdir -p "$SKILLS_DIR"
+if [ -f "$BACKUP_DIR/skills.tar.gz" ]; then
+    echo "Restoring skills from tar archive..."
+    tar xzf "$BACKUP_DIR/skills.tar.gz" -C "$SKILLS_DIR/" 2>&1 || true
+    echo "Restored skills from tar archive"
+elif [ -d "$BACKUP_DIR/skills" ] && [ "$(ls -A $BACKUP_DIR/skills 2>/dev/null)" ]; then
+    echo "Restoring skills from legacy rsync backup..."
     rsync -r --no-times --exclude=".git" "$BACKUP_DIR/skills/" "$SKILLS_DIR/" 2>&1 || true
-    echo "Restored skills from R2 backup"
+    echo "Restored skills from legacy rsync backup"
 fi
-' || echo "WARNING: Workspace/skills restore timed out or failed — continuing"
+' || echo "WARNING: R2 restore timed out or failed — continuing without R2 data"
 
 fi  # end FRESH_START skip
 

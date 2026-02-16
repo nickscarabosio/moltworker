@@ -107,13 +107,13 @@ describe('syncToR2', () => {
 
       await syncToR2(sandbox, env);
 
-      // Third call should be rsync to openclaw/ R2 prefix
-      const rsyncCall = startProcessMock.mock.calls[2][0];
-      expect(rsyncCall).toContain('rsync');
-      expect(rsyncCall).toContain('--no-times');
-      expect(rsyncCall).toContain('--delete');
-      expect(rsyncCall).toContain('/root/.openclaw/');
-      expect(rsyncCall).toContain('/data/moltbot/openclaw/');
+      // Third call should be the tar/cp sync command
+      const syncCall = startProcessMock.mock.calls[2][0];
+      expect(syncCall).toContain('tar czf');
+      expect(syncCall).toContain('openclaw-config.tar.gz');
+      expect(syncCall).toContain('workspace.tar.gz');
+      expect(syncCall).toContain('skills.tar.gz');
+      expect(syncCall).toContain('.last-sync');
     });
   });
 });

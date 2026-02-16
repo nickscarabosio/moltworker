@@ -17,13 +17,14 @@ export interface SyncResult {
  * This function:
  * 1. Mounts R2 if not already mounted
  * 2. Verifies source has critical files (prevents overwriting good backup with empty data)
- * 3. Runs rsync to copy config, workspace, and skills to R2
- * 4. Writes a timestamp file for tracking
+ * 3. Creates tar archives of config, workspace, and skills
+ * 4. Copies each archive to R2 (3 file writes instead of hundreds via rsync)
+ * 5. Writes a timestamp file for tracking
  *
- * Syncs three directories:
- * - Config: /root/.openclaw/ (or /root/.clawdbot/) → R2:/openclaw/
- * - Workspace: /root/.openclaw/workspace/ → R2:/workspace/ (IDENTITY.md, MEMORY.md, memory/, assets/)
- * - Skills: /root/clawd/skills/ → R2:/skills/
+ * Creates three tar archives in R2:
+ * - openclaw-config.tar.gz: /root/.openclaw/ (excluding workspace)
+ * - workspace.tar.gz: /root/.openclaw/workspace/ (IDENTITY.md, MEMORY.md, etc.)
+ * - skills.tar.gz: /root/clawd/skills/
  *
  * @param sandbox - The sandbox instance
  * @param env - Worker environment bindings
@@ -76,31 +77,42 @@ export async function syncToR2(sandbox: Sandbox, env: MoltbotEnv): Promise<SyncR
     };
   }
 
-  // Ensure workspace directory exists (may not exist in fresh containers)
-  // mkdir -p is safe to run even if the directory already exists
+  // Use tar archives instead of rsync — s3fs does one HTTP request per file,
+  // so rsync with many files is extremely slow. Tar creates a single archive
+  // locally then writes one file to R2 (3 writes total instead of hundreds).
   const syncParts = [
-    `mkdir -p /root/.openclaw/workspace`,
-    `rsync -r --no-times --delete --exclude='*.lock' --exclude='*.log' --exclude='*.tmp' --exclude='.git' ${configDir}/ ${R2_MOUNT_PATH}/openclaw/`,
-    `rsync -r --no-times --delete --exclude='.git' /root/.openclaw/workspace/ ${R2_MOUNT_PATH}/workspace/`,
-    `rsync -r --no-times --delete --exclude='.git' /root/clawd/skills/ ${R2_MOUNT_PATH}/skills/`,
+    `rm -f ${R2_MOUNT_PATH}/.last-sync`,
+    `mkdir -p /root/.openclaw/workspace /root/clawd/skills`,
+    // Config: tar locally, copy single file to R2
+    `tar czf /tmp/openclaw-config.tar.gz -C ${configDir} --exclude='workspace' --exclude='.git' --exclude='*.lock' --exclude='*.log' --exclude='*.tmp' .`,
+    `cp /tmp/openclaw-config.tar.gz ${R2_MOUNT_PATH}/openclaw-config.tar.gz`,
+    // Workspace: tar locally, copy single file to R2
+    `tar czf /tmp/openclaw-workspace.tar.gz -C /root/.openclaw/workspace --exclude='.git' .`,
+    `cp /tmp/openclaw-workspace.tar.gz ${R2_MOUNT_PATH}/workspace.tar.gz`,
+    // Skills: tar locally, copy single file to R2
+    `tar czf /tmp/openclaw-skills.tar.gz -C /root/clawd/skills --exclude='.git' .`,
+    `cp /tmp/openclaw-skills.tar.gz ${R2_MOUNT_PATH}/skills.tar.gz`,
+    // Cleanup temp files and write timestamp
+    `rm -f /tmp/openclaw-config.tar.gz /tmp/openclaw-workspace.tar.gz /tmp/openclaw-skills.tar.gz`,
     `date -Iseconds > ${R2_MOUNT_PATH}/.last-sync`,
   ];
   const syncCmd = syncParts.join(' && ');
 
   try {
-    const syncResult = await runCommandWithCleanup(sandbox, syncCmd, 30000); // 30 second timeout for sync
+    const syncResult = await runCommandWithCleanup(sandbox, syncCmd, 60000); // 60s timeout
 
-    // Check for success by reading the timestamp file
-    const timestampResult = await runCommandWithCleanup(sandbox, `cat ${R2_MOUNT_PATH}/.last-sync`, 5000);
+    // Check for success by reading the NEW timestamp file
+    // If the && chain broke, .last-sync won't exist (we deleted it above)
+    const timestampResult = await runCommandWithCleanup(sandbox, `cat ${R2_MOUNT_PATH}/.last-sync 2>/dev/null || echo MISSING`, 5000);
     const lastSync = timestampResult.stdout.trim();
 
-    if (lastSync && lastSync.match(/^\d{4}-\d{2}-\d{2}/)) {
+    if (lastSync && lastSync.match(/^\d{4}-\d{2}-\d{2}/) && !lastSync.includes('MISSING')) {
       return { success: true, lastSync };
     } else {
       return {
         success: false,
         error: 'Sync failed',
-        details: syncResult.stderr || syncResult.stdout || 'No timestamp file created',
+        details: syncResult.stderr || syncResult.stdout || 'Tar/copy chain failed — timestamp not written',
       };
     }
   } catch (err) {
