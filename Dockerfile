@@ -37,8 +37,13 @@ RUN npm install -g openclaw@2026.2.3 \
 # Create OpenClaw directories
 # Legacy .clawdbot paths are kept for R2 backup migration
 RUN mkdir -p /root/.openclaw \
+    && mkdir -p /root/.openclaw/workspace \
     && mkdir -p /root/clawd \
     && mkdir -p /root/clawd/skills
+
+# Copy default workspace files (USER.md, SOUL.md, MEMORY.md)
+# These are seeds — the startup script only uses them if no R2 backup exists
+COPY workspace/ /root/.openclaw/workspace-defaults/
 
 # Copy startup script
 # Build cache bust: 2026-02-14-v41-doctor-timeout-and-host-header-fix

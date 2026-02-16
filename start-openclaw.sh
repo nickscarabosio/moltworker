@@ -108,6 +108,25 @@ fi
 fi  # end FRESH_START skip
 
 # ============================================================
+# SEED DEFAULT WORKSPACE FILES (if not restored from R2)
+# ============================================================
+# Copy USER.md, SOUL.md, MEMORY.md from image defaults if they
+# don't already exist in the workspace (R2 restore takes priority)
+WORKSPACE_DIR="/root/.openclaw/workspace"
+DEFAULTS_DIR="/root/.openclaw/workspace-defaults"
+mkdir -p "$WORKSPACE_DIR"
+if [ -d "$DEFAULTS_DIR" ]; then
+    for f in "$DEFAULTS_DIR"/*.md; do
+        [ -f "$f" ] || continue
+        basename="$(basename "$f")"
+        if [ ! -f "$WORKSPACE_DIR/$basename" ]; then
+            cp "$f" "$WORKSPACE_DIR/$basename"
+            echo "Seeded default workspace file: $basename"
+        fi
+    done
+fi
+
+# ============================================================
 # ONBOARD (only if no config exists yet)
 # ============================================================
 if [ ! -f "$CONFIG_FILE" ]; then
