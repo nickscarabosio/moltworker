@@ -76,9 +76,16 @@ export async function syncToR2(sandbox: Sandbox, env: MoltbotEnv): Promise<SyncR
     };
   }
 
-  // Sync to the new openclaw/ R2 prefix (even if source is legacy .clawdbot)
-  // Also sync workspace directory (OpenClaw stores MEMORY.md, IDENTITY.md, etc. in /root/.openclaw/workspace/)
-  const syncCmd = `rsync -r --no-times --delete --exclude='*.lock' --exclude='*.log' --exclude='*.tmp' --exclude='.git' ${configDir}/ ${R2_MOUNT_PATH}/openclaw/ && rsync -r --no-times --delete --exclude='.git' /root/.openclaw/workspace/ ${R2_MOUNT_PATH}/workspace/ && rsync -r --no-times --delete --exclude='.git' /root/clawd/skills/ ${R2_MOUNT_PATH}/skills/ && date -Iseconds > ${R2_MOUNT_PATH}/.last-sync`;
+  // Ensure workspace directory exists (may not exist in fresh containers)
+  // mkdir -p is safe to run even if the directory already exists
+  const syncParts = [
+    `mkdir -p /root/.openclaw/workspace`,
+    `rsync -r --no-times --delete --exclude='*.lock' --exclude='*.log' --exclude='*.tmp' --exclude='.git' ${configDir}/ ${R2_MOUNT_PATH}/openclaw/`,
+    `rsync -r --no-times --delete --exclude='.git' /root/.openclaw/workspace/ ${R2_MOUNT_PATH}/workspace/`,
+    `rsync -r --no-times --delete --exclude='.git' /root/clawd/skills/ ${R2_MOUNT_PATH}/skills/`,
+    `date -Iseconds > ${R2_MOUNT_PATH}/.last-sync`,
+  ];
+  const syncCmd = syncParts.join(' && ');
 
   try {
     const syncResult = await runCommandWithCleanup(sandbox, syncCmd, 30000); // 30 second timeout for sync
